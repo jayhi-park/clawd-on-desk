@@ -85,8 +85,9 @@ function entryHasMarker(entry) {
  * @param {boolean} [options.silent]    suppress console output (used by tests)
  * @param {string}  [options.hooksPath] override config file location (tests)
  * @param {string}  [options.homeDir]   override home dir (tests)
- * @param {string}  [options.nodeBin]   pin node binary; defaults to bare "node"
- *                                       since Copilot's launcher inherits PATH
+ * @param {string}  [options.nodeBin]   pin node binary. Remote installs default
+ *                                       to this process' Node executable so
+ *                                       non-interactive SSH PATH is not needed.
  * @param {string}  [options.hookScript] override absolute path to copilot-hook.js
  * @param {boolean} [options.remote]     register hooks for SSH remote mode
  * @returns {{ added: number, updated: number, skipped: number, configChanged: boolean }}
@@ -112,10 +113,7 @@ function registerCopilotHooks(options = {}) {
   const hookScript = options.hookScript
     || asarUnpackedPath(path.resolve(__dirname, "copilot-hook.js").replace(/\\/g, "/"));
 
-  // Copilot's hook launcher resolves `node` from PATH on the remote, so a bare
-  // `node` is the right default for the `--remote` deploy target. Local manual
-  // installs may pin an absolute path via options.nodeBin if needed.
-  const nodeBin = options.nodeBin || "node";
+  const nodeBin = options.nodeBin || (options.remote === true ? process.execPath : "node");
 
   let settings = {};
   try {

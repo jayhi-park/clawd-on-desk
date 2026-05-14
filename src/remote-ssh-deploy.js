@@ -22,6 +22,11 @@ const fs = require("fs");
 const path = require("path");
 
 const { buildSshArgs, buildScpArgs } = require("./remote-ssh-runtime");
+const {
+  resolveRemoteNodeBin,
+  getCachedRemoteNodeBin,
+  buildRemoteHookNodeCommand,
+} = require("./remote-ssh-node");
 
 // ── Hook files manifest ──
 //
@@ -154,16 +159,35 @@ async function deploy({ profile, runtime, deps = {} }) {
     progress("mkdir", "ok");
   }
 
-  // 2. command -v node — abort if remote has no Node.
+  // 2. Resolve remote Node — abort if the remote has no executable Node.
   progress("check-node", "start");
+  let remoteNode;
+  let remoteNodeInfo;
   {
-    const args = buildSshArgs(profile).concat(["command -v node && node --version"]);
-    const r = await spawnAndWait(spawn, "ssh", args, { runtime });
-    if (r.code !== 0 || !/(^|\n)\/.+\nv\d+/i.test(r.stdout)) {
-      progress("check-node", "fail", "remote node not found");
-      return { ok: false, step: "check-node", message: "Remote Node.js not found. Install Node on the remote first." };
+    const resolved = await resolveRemoteNodeBin({
+      profile,
+      spawn,
+      buildSshArgs,
+      runtime,
+    });
+    if (!resolved.ok) {
+      progress("check-node", "fail", resolved.message || "remote node not found");
+      return {
+        ok: false,
+        step: "check-node",
+        message: resolved.message || "Remote Node.js not found. Install Node on the remote first.",
+      };
     }
-    progress("check-node", "ok", (r.stdout || "").trim().split("\n").pop());
+    remoteNode = resolved.nodeBin;
+    remoteNodeInfo = {
+      nodeBin: resolved.nodeBin,
+      version: resolved.version || null,
+      source: resolved.source || null,
+    };
+    const label = [resolved.version, resolved.source ? `via ${resolved.source}` : null]
+      .filter(Boolean)
+      .join(" ");
+    progress("check-node", "ok", label);
   }
 
   // 3. scp hook files. Single scp invocation with all files for efficiency.
@@ -199,10 +223,12 @@ async function deploy({ profile, runtime, deps = {} }) {
     progress("host-prefix", "ok");
   }
 
-  // 5. node ~/.claude/hooks/install.js --remote — Claude hook registration.
+  // 5. ~/.claude/hooks/install.js --remote — Claude hook registration.
   progress("install-claude", "start");
   {
-    const args = buildSshArgs(profile).concat(["node ~/.claude/hooks/install.js --remote"]);
+    const args = buildSshArgs(profile).concat([
+      buildRemoteHookNodeCommand(remoteNode, "install.js", ["--remote"]),
+    ]);
     const r = await spawnAndWait(spawn, "ssh", args, { timeoutMs: 60000, runtime });
     if (r.code !== 0) {
       // Best-effort — log but don't abort. Claude may not be installed remotely.
@@ -212,10 +238,12 @@ async function deploy({ profile, runtime, deps = {} }) {
     }
   }
 
-  // 6. node ~/.claude/hooks/codex-install.js --remote — Codex hook registration.
+  // 6. ~/.claude/hooks/codex-install.js --remote — Codex hook registration.
   progress("install-codex", "start");
   {
-    const args = buildSshArgs(profile).concat(["node ~/.claude/hooks/codex-install.js --remote"]);
+    const args = buildSshArgs(profile).concat([
+      buildRemoteHookNodeCommand(remoteNode, "codex-install.js", ["--remote"]),
+    ]);
     const r = await spawnAndWait(spawn, "ssh", args, { timeoutMs: 60000, runtime });
     if (r.code !== 0) {
       progress("install-codex", "fail", summarizeStderr(r.stderr) || `non-zero exit ${formatExit(r)}`);
@@ -224,12 +252,14 @@ async function deploy({ profile, runtime, deps = {} }) {
     }
   }
 
-  // 7. node ~/.claude/hooks/copilot-install.js --remote — Copilot CLI hook registration.
+  // 7. ~/.claude/hooks/copilot-install.js --remote — Copilot CLI hook registration.
   // Best-effort: silently degrades when Copilot CLI is not installed remotely
   // (the installer skips and exits 0 when ~/.copilot/ is missing).
   progress("install-copilot", "start");
   {
-    const args = buildSshArgs(profile).concat(["node ~/.claude/hooks/copilot-install.js --remote"]);
+    const args = buildSshArgs(profile).concat([
+      buildRemoteHookNodeCommand(remoteNode, "copilot-install.js", ["--remote"]),
+    ]);
     const r = await spawnAndWait(spawn, "ssh", args, { timeoutMs: 60000, runtime });
     if (r.code !== 0) {
       progress("install-copilot", "fail", summarizeStderr(r.stderr) || `non-zero exit ${formatExit(r)}`);
@@ -238,7 +268,7 @@ async function deploy({ profile, runtime, deps = {} }) {
     }
   }
 
-  return { ok: true };
+  return { ok: true, remoteNode: remoteNodeInfo };
 }
 
 // ── Codex remote monitor PID management ──
@@ -250,6 +280,12 @@ async function deploy({ profile, runtime, deps = {} }) {
 
 async function startCodexMonitor({ profile, runtime = null, deps = {} }) {
   const spawn = deps.spawn || childProcess.spawn;
+  const remoteNode = deps.nodeBin
+    || (getCachedRemoteNodeBin(profile) && getCachedRemoteNodeBin(profile).nodeBin)
+    || (await resolveRemoteNodeBin({ profile, spawn, buildSshArgs, runtime })).nodeBin;
+  if (!remoteNode) {
+    return { ok: false, stderr: "Remote Node.js not found" };
+  }
   // Pre-clean step: best-effort, never fatal. The trailing `; true` makes
   // the whole compound exit 0 even if no PID file exists or kill fails.
   const cleanCmd =
@@ -260,7 +296,7 @@ async function startCodexMonitor({ profile, runtime = null, deps = {} }) {
 
   // Launch new monitor in background and capture its PID.
   const startCmd =
-    `nohup node ~/.claude/hooks/codex-remote-monitor.js --port ${profile.remoteForwardPort} ` +
+    `nohup ${buildRemoteHookNodeCommand(remoteNode, "codex-remote-monitor.js", ["--port", profile.remoteForwardPort])} ` +
     "> /dev/null 2>&1 & echo $! > ~/.clawd-codex-monitor.pid";
   const startArgs = buildSshArgs(profile).concat([startCmd]);
   const r = await spawnAndWait(spawn, "ssh", startArgs, { runtime });

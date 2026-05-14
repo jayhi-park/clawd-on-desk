@@ -150,6 +150,21 @@ describe("registerCopilotHooks", () => {
     }
   });
 
+  it("remote install defaults to the current Node executable instead of bare node", () => {
+    const { homeDir, hooksPath } = makeTempHomeWithCopilot();
+
+    registerCopilotHooks({
+      silent: true,
+      homeDir,
+      hookScript: "/srv/clawd/hooks/copilot-hook.js",
+      remote: true,
+    });
+
+    const entry = readJson(hooksPath).hooks.sessionStart[0];
+    assert.ok(entry.bash.includes(`"${process.execPath.replace(/"/g, '\\"')}"`));
+    assert.ok(!entry.bash.startsWith('CLAWD_REMOTE=1 "node" '));
+  });
+
   it("is idempotent on second run (no rewrite when state matches)", () => {
     const { homeDir, hooksPath } = makeTempHomeWithCopilot();
     registerCopilotHooks({ silent: true, homeDir, nodeBin: "node", hookScript: "/p/copilot-hook.js" });
