@@ -22,6 +22,12 @@ The fetch script downloads release archives from
 `rullerzhou-afk/cc-connect-clawd`, verifies `checksums.txt`, and extracts the
 binaries into this directory layout. Do not use upstream latest artifacts.
 
+Upstream `chenhg5/cc-connect` updates are not consumed automatically. To update
+the sidecar dependency, sync the public `cc-connect-clawd` fork from upstream,
+review and test the Clawd bridge changes, publish a new fixed sidecar release
+tag such as `clawd-sidecar-v0.1.1`, then update the pinned tag in
+`scripts/fetch-sidecar-binaries.js` and run the sidecar fetch/verify tests.
+
 The resolver uses Go-style OS names (`windows`, `darwin`, `linux`) and
 Electron/Node architecture names (`x64`, `arm64`). Source runs use this same
 layout under the repo-local `bin/cc-connect-clawd/` directory.
