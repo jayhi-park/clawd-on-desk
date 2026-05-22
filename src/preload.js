@@ -24,6 +24,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   onStartDragReaction: (cb) => ipcRenderer.on("start-drag-reaction", () => cb()),
   onEndDragReaction: (cb) => ipcRenderer.on("end-drag-reaction", () => cb()),
   onPlayClickReaction: (cb) => ipcRenderer.on("play-click-reaction", (_, svg, duration) => cb(svg, duration)),
+  // Usage status (session percent + reset countdown)
+  onUsageStatus: (cb) => ipcRenderer.on("usage-status", (_, status) => cb(status)),
   // Sound playback (from main)
   onPlaySound: (cb) => ipcRenderer.on("play-sound", (_, payload) => cb(payload)),
   onInvalidateSoundCache: (cb) => ipcRenderer.on("invalidate-sound-cache", (_, url) => cb(url)),

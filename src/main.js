@@ -1642,6 +1642,7 @@ registerDoctorIpc({
 // any spawned ssh / scp children.
 const { createRemoteSshRuntime } = require("./remote-ssh-runtime");
 const { registerRemoteSshIpc } = require("./remote-ssh-ipc");
+const { createUsageResetWatcher } = require("./usage-reset-watcher");
 const _remoteSshRuntime = createRemoteSshRuntime({
   getHookServerPort: () => getHookServerPort(),
   log: (...args) => console.warn("Clawd remote-ssh:", ...args),
@@ -1779,6 +1780,13 @@ function createWindow() {
     restoreMiniFromPrefs: (prefsSnapshot, pixelSize) => _mini.restoreFromPrefs(prefsSnapshot, pixelSize),
   });
 
+  // Start polling usage before the window loads so data is ready by did-finish-load
+  let _pendingUsageStatus = null;
+  const _usageResetWatcher = createUsageResetWatcher((status) => {
+    _pendingUsageStatus = status;
+    sendToRenderer("usage-status", status);
+  });
+
   petWindowRuntime.createRenderWindow({
     BrowserWindow,
     size,
@@ -1877,6 +1885,13 @@ function createWindow() {
   win.webContents.on("did-finish-load", () => {
     sendToRenderer("theme-config", themeRuntime.getRendererConfig());
     sendToRenderer("viewport-offset", petWindowRuntime.getViewportOffsetY());
+    // If we already received data during startup, send it immediately (no extra API round-trip).
+    // Otherwise force a fresh fetch.
+    if (_pendingUsageStatus !== null) {
+      sendToRenderer("usage-status", _pendingUsageStatus);
+    } else {
+      _usageResetWatcher.forcePoll();
+    }
     if (themeRuntime.isReloadInProgress()) return;
     syncRendererStateAfterLoad();
   });
@@ -2130,6 +2145,7 @@ if (!gotTheLock) {
     if (animationOverridesMain) animationOverridesMain.cleanup();
     try { _remoteSshIpc.dispose(); } catch {}
     try { _remoteSshRuntime.cleanup(); } catch {}
+    try { _usageResetWatcher.stop(); } catch {}
     if (hitWin && !hitWin.isDestroyed()) hitWin.destroy();
   });
 

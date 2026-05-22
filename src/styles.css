@@ -50,3 +50,26 @@ html, body {
 #pet-container.mini-left {
   transform: scaleX(-1);
 }
+
+.usage-reset {
+  position: absolute;
+  bottom: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.52);
+  color: rgba(255, 255, 255, 0.90);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  padding: 2px 6px;
+  border-radius: 6px;
+  pointer-events: none;
+  letter-spacing: 0.02em;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.usage-reset.hidden {
+  display: none;
+}

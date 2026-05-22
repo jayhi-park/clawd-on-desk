@@ -1311,6 +1311,54 @@ window.electronAPI.onWakeFromDoze(() => {
   }
 });
 
+// --- Usage status (session percent + reset countdown) ---
+(function () {
+  const el = document.getElementById("usage-reset");
+  if (!el) return;
+  let resetAt = null;
+  let percent = null;
+  let tickTimer = null;
+
+  function pad(n) { return String(n).padStart(2, "0"); }
+
+  function formatCountdown(ms) {
+    if (ms <= 0) return null;
+    const totalSec = Math.ceil(ms / 1000);
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+  }
+
+  function tick() {
+    tickTimer = null;
+    const hasPercent = percent !== null;
+    const hasReset = resetAt && resetAt > Date.now();
+    if (!hasPercent && !hasReset) { el.classList.add("hidden"); return; }
+
+    const parts = [];
+    if (hasPercent) parts.push(`${percent}%`);
+    if (hasReset) {
+      const label = formatCountdown(resetAt - Date.now());
+      if (label) parts.push(`⏱ ${label}`);
+      else resetAt = null;
+    }
+    if (parts.length) {
+      el.textContent = parts.join("  ");
+      el.classList.remove("hidden");
+    }
+    tickTimer = setTimeout(tick, 1000);
+  }
+
+  window.electronAPI.onUsageStatus((status) => {
+    const s = status || {};
+    resetAt = (typeof s.resetAt === "number" && s.resetAt > Date.now()) ? s.resetAt : null;
+    percent = (typeof s.percent === "number") ? s.percent : null;
+    if (tickTimer) { clearTimeout(tickTimer); tickTimer = null; }
+    tick();
+  });
+}());
+
 // --- Initial frame: always go through swapToFile so the right channel and theme scaling apply ---
 if (!currentDisplayedSvg && _idleFollowSvg) {
   currentIdleSvg = _idleFollowSvg;
