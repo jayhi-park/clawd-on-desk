@@ -1787,6 +1787,20 @@ function createWindow() {
     sendToRenderer("usage-status", status);
   });
 
+  // When renderer detects the reset countdown expired, spawn `claude -p "."` to
+  // consume the new window and bring usage data up to date, then re-poll.
+  let _resetInFlight = false;
+  ipcMain.on("usage-reset-triggered", () => {
+    if (_resetInFlight) return;
+    _resetInFlight = true;
+    const shell = process.env.SHELL || "/bin/bash";
+    const { exec } = require("child_process");
+    exec(`${shell} -lc 'claude -p "."'`, { timeout: 120000 }, () => {
+      _resetInFlight = false;
+      try { _usageResetWatcher.forcePoll(); } catch {}
+    });
+  });
+
   petWindowRuntime.createRenderWindow({
     BrowserWindow,
     size,

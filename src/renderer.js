@@ -1318,6 +1318,7 @@ window.electronAPI.onWakeFromDoze(() => {
   let resetAt = null;
   let percent = null;
   let tickTimer = null;
+  let _resetTriggered = false;
 
   function pad(n) { return String(n).padStart(2, "0"); }
 
@@ -1334,6 +1335,13 @@ window.electronAPI.onWakeFromDoze(() => {
     tickTimer = null;
     const hasPercent = percent !== null;
     const hasReset = resetAt && resetAt > Date.now();
+
+    // Detect expiry: resetAt was set but countdown just hit zero
+    if (resetAt && !hasReset && !_resetTriggered) {
+      _resetTriggered = true;
+      window.electronAPI.triggerUsageReset();
+    }
+
     if (!hasPercent && !hasReset) { el.classList.add("hidden"); return; }
 
     const parts = [];
@@ -1354,6 +1362,7 @@ window.electronAPI.onWakeFromDoze(() => {
     const s = status || {};
     resetAt = (typeof s.resetAt === "number" && s.resetAt > Date.now()) ? s.resetAt : null;
     percent = (typeof s.percent === "number") ? s.percent : null;
+    _resetTriggered = false; // allow next expiry to fire again
     if (tickTimer) { clearTimeout(tickTimer); tickTimer = null; }
     tick();
   });

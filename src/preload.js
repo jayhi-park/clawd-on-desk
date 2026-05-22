@@ -33,4 +33,5 @@ contextBridge.exposeInMainWorld("electronAPI", {
   pauseCursorPolling: () => ipcRenderer.send("pause-cursor-polling"),
   resumeFromReaction: () => ipcRenderer.send("resume-from-reaction"),
   setLowPowerIdlePaused: (paused) => ipcRenderer.send("low-power-idle-paused", !!paused),
+  triggerUsageReset: () => ipcRenderer.send("usage-reset-triggered"),
 });
