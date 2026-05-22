@@ -13,6 +13,7 @@ const CREDENTIALS_PATH = path.join(os.homedir(), ".claude", ".credentials.json")
 const USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
 const POLL_MS = 60000; // every 60 seconds
 const FAST_POLL_MS = 15000; // faster when near limit
+const RETRY_MS = 10000; // on fetch error, retry sooner
 
 function readAccessToken() {
   try {
@@ -68,24 +69,36 @@ function createUsageResetWatcher(onChange) {
     timer = null;
     if (resetLastKey) lastKey = "";
 
-    let status = { resetAt: null, percent: null };
+    let status = null;
+    let fetchFailed = false;
     try {
       const token = readAccessToken();
       if (token) {
         const data = await fetchUsage(token);
-        status = parseStatus(data);
+        if (data !== null) {
+          status = parseStatus(data); // valid API response (fields may still be null)
+        } else {
+          fetchFailed = true; // network error, timeout, or non-200
+        }
+      } else {
+        fetchFailed = true; // no token yet
       }
-    } catch {}
-
-    const key = `${status.resetAt}|${status.percent}`;
-    if (key !== lastKey) {
-      lastKey = key;
-      try { onChange(status); } catch {}
+    } catch {
+      fetchFailed = true;
     }
 
+    if (!fetchFailed) {
+      const key = `${status.resetAt}|${status.percent}`;
+      if (key !== lastKey) {
+        lastKey = key;
+        try { onChange(status); } catch {}
+      }
+    }
+    // on fetchFailed: keep lastKey unchanged, don't call onChange → display stays visible
+
     if (!stopped) {
-      // Poll faster when usage is high (>= 80%) so the display stays fresh
-      const delay = (status.percent !== null && status.percent >= 80) ? FAST_POLL_MS : POLL_MS;
+      const delay = fetchFailed ? RETRY_MS :
+        (status && status.percent !== null && status.percent >= 80) ? FAST_POLL_MS : POLL_MS;
       timer = setTimeout(poll, delay);
     }
   }

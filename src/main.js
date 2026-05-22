@@ -1,6 +1,7 @@
 const { app, BrowserWindow, screen, ipcMain, globalShortcut, nativeTheme, dialog, shell } = require("electron");
 const path = require("path");
 const fs = require("fs");
+const os = require("os");
 const {
   applyWindowsAppUserModelId,
   shouldOpenSettingsWindowFromArgv,
@@ -1643,6 +1644,22 @@ registerDoctorIpc({
 const { createRemoteSshRuntime } = require("./remote-ssh-runtime");
 const { registerRemoteSshIpc } = require("./remote-ssh-ipc");
 const { createUsageResetWatcher } = require("./usage-reset-watcher");
+
+const USAGE_CACHE_PATH = path.join(os.homedir(), ".clawd", "usage-cache.json");
+
+function readUsageCache() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(USAGE_CACHE_PATH, "utf8"));
+    return (raw && typeof raw.savedAt === "number") ? raw : null;
+  } catch { return null; }
+}
+
+function writeUsageCache(status) {
+  try {
+    fs.mkdirSync(path.dirname(USAGE_CACHE_PATH), { recursive: true });
+    fs.writeFileSync(USAGE_CACHE_PATH, JSON.stringify({ status, savedAt: Date.now() }), "utf8");
+  } catch {}
+}
 const _remoteSshRuntime = createRemoteSshRuntime({
   getHookServerPort: () => getHookServerPort(),
   log: (...args) => console.warn("Clawd remote-ssh:", ...args),
@@ -1784,6 +1801,9 @@ function createWindow() {
   let _pendingUsageStatus = null;
   const _usageResetWatcher = createUsageResetWatcher((status) => {
     _pendingUsageStatus = status;
+    if (status.percent !== null || status.resetAt !== null) {
+      writeUsageCache(status);
+    }
     sendToRenderer("usage-status", status);
   });
 
@@ -1899,9 +1919,16 @@ function createWindow() {
   win.webContents.on("did-finish-load", () => {
     sendToRenderer("theme-config", themeRuntime.getRendererConfig());
     sendToRenderer("viewport-offset", petWindowRuntime.getViewportOffsetY());
-    // If we already received data during startup, send it immediately (no extra API round-trip).
-    // Otherwise force a fresh fetch.
-    if (_pendingUsageStatus !== null) {
+    // Show cached status immediately (0ms delay) if fresh enough
+    const cached = readUsageCache();
+    if (cached && Date.now() - cached.savedAt < 5 * 60 * 1000) {
+      sendToRenderer("usage-status", cached.status);
+    }
+    // If watcher already returned valid data, push it now (overrides cache);
+    // otherwise force a fresh fetch.
+    const hasValidStatus = _pendingUsageStatus !== null &&
+      (_pendingUsageStatus.percent !== null || _pendingUsageStatus.resetAt !== null);
+    if (hasValidStatus) {
       sendToRenderer("usage-status", _pendingUsageStatus);
     } else {
       _usageResetWatcher.forcePoll();
